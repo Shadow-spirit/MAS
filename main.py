@@ -356,9 +356,6 @@ You are the Coder agent in a multi-agent robot system for Tiago robot.
     )
 
 
-
-
-
     team = Swarm(
         [user, commander, coder],
         termination_condition=HandoffTermination(target="user")
