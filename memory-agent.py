@@ -18,7 +18,8 @@ import torch
 import open_clip
 from PIL import Image
 from vector_store import PersistentVectorStore
-
+from openai import OpenAI
+client = OpenAI()
 vector_store = PersistentVectorStore(dim=768)
 
 
@@ -39,29 +40,56 @@ def load_image_base64(image_path: str = "/images/latest.jpg") -> str:
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-# 存储图像与向量的三元组（LOOKS_LIKE 和 EMBEDDING）
-def store_image_link(subject: str, image_path: str) -> str:
-    vector = image_to_embedding(image_path)
-    embedding_id = vector_store.add(vector)
 
-    with driver.session() as session:
-        session.run(
-            """
-            MERGE (p:Entity {name: $subject})
-            MERGE (img:Image {path: $path})
-            SET img.time = $time
-            MERGE (vec:Vector {id: $vec_id})
-            MERGE (p)-[:LOOKS_LIKE]->(img)
-            MERGE (img)-[:EMBEDDING]->(vec)
-            """,
-            {
-                "subject": subject.lower(),
-                "path": image_path,
-                "time": datetime.now().isoformat(),
-                "vec_id": embedding_id,
-            },
-        )
-    return f"Stored image for {subject} as {embedding_id}"
+import uuid, shutil
+
+def _unique_image_path(orig_path: str, base_dir: str = "/home/haoqi/Desktop/Swarmproject/image") -> str:
+    os.makedirs(base_dir, exist_ok=True)
+    ext = os.path.splitext(orig_path)[1] or ".jpg"
+    new_path = os.path.join(base_dir, f"img_{uuid.uuid4().hex}{ext}")
+    try:
+        shutil.copyfile(orig_path, new_path)  # 复制到唯一命名的文件
+    except Exception as e:
+        raise RuntimeError(f"copy image failed: {e}")
+    return new_path
+
+def store_image_link(subject: str, image_path: str) -> str:
+    try:
+        if not os.path.exists(image_path):
+            return f"Error: image not found at {image_path}"
+        # 每次保存都落一个唯一文件名，避免 path 冲突/覆盖
+        unique_path = _unique_image_path(image_path)
+        vector = image_to_embedding(unique_path)
+    except Exception as e:
+        return f"Error in image_to_embedding: {e}"
+
+    try:
+        embedding_id = vector_store.add(vector)
+    except Exception as e:
+        return f"Error in FAISS add: {e}"
+
+    try:
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (p:Entity {name: $subject})
+                MERGE (img:Image {path: $path})
+                SET img.time = $time
+                MERGE (vec:Vector {id: $vec_id})
+                MERGE (p)-[:LOOKS_LIKE]->(img)
+                MERGE (img)-[:EMBEDDING]->(vec)
+                """,
+                {
+                    "subject": subject.lower(),
+                    "path": unique_path,  # <-- 用唯一路径
+                    "time": datetime.now().isoformat(),
+                    "vec_id": embedding_id,
+                },
+            )
+        return f"Stored image for {subject} as {embedding_id} @ {unique_path}"
+    except Exception as e:
+        return f"Error in Neo4j: {e}"
+
     
 
 def store_triples(triples: List[Dict[str, str]]) -> str:
@@ -116,12 +144,38 @@ def get_entity_by_vector_id(vector_id: str) -> str:
         result = session.run(
             """
             MATCH (e:Entity)-[:LOOKS_LIKE]->(:Image)-[:EMBEDDING]->(v:Vector {id: $id})
-            RETURN e.name AS name
+            RETURN DISTINCT e.name AS name
             """,
             {"id": vector_id}
         )
         records = [record["name"] for record in result]
         return json.dumps(records, indent=2)
+
+import os, base64
+def describe_image_from_path(image_path: str, task_instruction: str = None) -> str:
+    if not os.path.exists(image_path):
+        return f"Error: image not found at {image_path}"
+
+    if not task_instruction:
+        task_instruction = "Describe in plain text what is visible in the image."
+
+    # Encode local file as data URL
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    data_url = f"data:image/jpeg;base64,{b64}"
+
+    resp = client.chat.completions.create(
+        model="gpt-4o",
+        temperature=0.2,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": task_instruction},
+                {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
+            ],
+        }],
+    )
+    return resp.choices[0].message.content
 
 
 # Autogen setup
@@ -132,7 +186,7 @@ async def main():
     memory_agent = AssistantAgent(
         name="memory",
         model_client=client,
-        tools=[store_triples, query_graph,list_entities,store_image_link,search_visual_memory_from_image,get_entity_by_vector_id],
+        tools=[describe_image_from_path,store_triples, query_graph,list_entities,store_image_link,search_visual_memory_from_image,get_entity_by_vector_id],
         handoffs=["user"],
         system_message="""
 You are a Memory Agent.
@@ -146,6 +200,13 @@ Your responsibilities:
 Memory Storage Schema:
 - All entities are stored in Neo4j as lowercase strings. Match entity names or properties exactly—do not match on labels.
 - Use CONTAINS or similar operators if partial matching is required, but always on entity properties, not node labels.
+
+- When creating triples:
+    * Convert subject and object to lowercase strings.
+    * The relation must be a valid Neo4j relationship type containing only uppercase letters, digits, and underscores.
+    * Do not include spaces, hyphens, slashes, or other illegal characters in the relation.
+    * If the relation contains spaces or other invalid characters, replace them with underscores. 
+      For example, "is a" → "IS_A", "has gender" → "HAS_GENDER".
 
 Visual Memory Handling:
 - If the user mentions a visual input but does not provide an image path, assume the image is located at /home/haoqi/Desktop/Swarmproject/image/latest.jpg.
@@ -162,7 +223,7 @@ IMPORTANT:
 When asked about an entity, use the following Cypher query pattern:
 
 MATCH (e:Entity {name: "<ENTITY_NAME>"})-[r]-(connected)
-RETURN e.name AS source, type(r) AS relation, connected.name AS target, properties(r) AS rel_props
+RETURN e, r, connected
 
 Use relation type and direction to infer semantic meaning when appropriate.
 
