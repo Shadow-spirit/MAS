@@ -25,9 +25,14 @@ from autogen_agentchat.messages import HandoffMessage
 from autogen_agentchat.conditions import HandoffTermination
 from autogen_agentchat.ui import Console
 
+from memory_tools import (
+    store_triples, store_image_link, query_graph, list_entities,
+    search_visual_memory_from_image, get_entity_by_vector_id, describe_image_from_path
+)
+
 def safe_init_node(name):
     if not rospy.core.is_initialized():
-        rospy.set_param('/use_sim_time', True)
+        rospy.set_param('/use_sim_time', False)
         rospy.init_node(name, anonymous=True, disable_signals=True)
 
 def grasp_item(x: float, y: float, z: float) -> str:
@@ -292,7 +297,7 @@ async def main():
     commander = AssistantAgent(
         name="commander",
         model_client=model_client,
-        handoffs=["user","coder"],
+        handoffs=["user","coder","memory"],
         tools=[],
         system_message="""
 You are the Commander in a multi-agent TIAGo robot system.
@@ -315,7 +320,7 @@ Responsibilities:
     coder = AssistantAgent(
         name="coder",
         model_client=model_client,
-        handoffs=["commander"],
+        handoffs=["commander","memory"],
         tools=[move_arm_to_pose,reset_entire_arm_posture,get_moveit_status,move_head,get_enviroment,control_pal_gripper],
         system_message="""
 You are the Coder agent in a multi-agent robot system for Tiago robot.
@@ -356,8 +361,55 @@ You are the Coder agent in a multi-agent robot system for Tiago robot.
     )
 
 
+    memory_agent = AssistantAgent(
+        name="memory",
+        model_client=client,
+        tools=[describe_image_from_path,store_triples, query_graph,list_entities,store_image_link,search_visual_memory_from_image,get_entity_by_vector_id],
+        handoffs=["coder","commander"],
+        system_message="""
+You are a Memory Agent.
+
+Your responsibilities:
+- Always begin by calling list_entities() to display all known entities.
+- Extract structured triples from user input and store them using store_triples(...)
+- Remember anything that can be expressed as a triple, even if the user didn’t explicitly ask you to.
+- Answer memory-related questions by generating Cypher and calling query_graph(...) and display the result.
+
+Memory Storage Schema:
+- All entities are stored in Neo4j as lowercase strings. Match entity names or properties exactly—do not match on labels.
+- Use CONTAINS or similar operators if partial matching is required, but always on entity properties, not node labels.
+
+- When creating triples:
+    * Convert subject and object to lowercase strings.
+    * The relation must be a valid Neo4j relationship type containing only uppercase letters, digits, and underscores.
+    * Do not include spaces, hyphens, slashes, or other illegal characters in the relation.
+    * If the relation contains spaces or other invalid characters, replace them with underscores. 
+      For example, "is a" → "IS_A", "has gender" → "HAS_GENDER".
+
+Visual Memory Handling:
+- If the user mentions a visual input but does not provide an image path, assume the image is located at /home/haoqi/Desktop/Swarmproject/image/latest.jpg.
+- To store a visual memory, call store_image_link(subject, image_path).
+- To retrieve the most similar image memory, call search_visual_memory_from_image(image_path).
+- If the user asks "Who is this?" or similar questions referring to an image, assume the image path is /home/haoqi/Desktop/Swarmproject/image/latest.jpg and call search_visual_memory_from_image accordingly.
+
+
+IMPORTANT:
+- After storing or answering, always Handoff to the user.
+- This ends your turn. Do NOT continue speaking unless the user speaks again.
+- You may have multiple users. Always link memory to the correct user context.
+
+When asked about an entity, use the following Cypher query pattern:
+
+MATCH (e:Entity {name: "<ENTITY_NAME>"})-[r]-(connected)
+RETURN e, r, connected
+
+Use relation type and direction to infer semantic meaning when appropriate.
+
+"""
+    )
+
     team = Swarm(
-        [user, commander, coder],
+        [user, commander, coder,memory_agent],
         termination_condition=HandoffTermination(target="user")
     )
 
