@@ -12,6 +12,23 @@ from autogen_agentchat.messages import BaseChatMessage
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 import os
 import json
+import yaml
+
+# === Load available object/location names from object_aruco_low.yaml and prepend to coder system prompt ===
+try:
+    _objmap_paths = ["object_aruco_low.yaml", "./config/object_aruco_low.yaml", "/mnt/data/object_aruco_low.yaml"]
+    _objmap = None
+    for _p in _objmap_paths:
+        if os.path.exists(_p):
+            with open(_p, "r") as _f:
+                _objmap = yaml.safe_load(_f) or {}
+            break
+    _names = ", ".join(sorted(_objmap.keys())) if _objmap else "NONE"
+    coder_system_message_prefix = f"Allowed names: [{_names}].\n"
+except Exception as _e:
+    coder_system_message_prefix = "Allowed names: [config not found].\n"
+
+from simple_aruco_executor import pick_and_place_by_name, locate_by_name, list_available_objects
 import base64
 from openai import OpenAI
 from typing import Dict
@@ -313,7 +330,7 @@ Responsibilities:
         name="coder",
         model_client=model_client,
         handoffs=["commander", "reviewer","memory"],
-        tools=[move_arm_to_pose, reset_entire_arm_posture, get_moveit_status, move_head, get_enviroment, control_pal_gripper],
+        tools=[move_arm_to_pose, reset_entire_arm_posture, get_moveit_status, move_head, get_enviroment, control_pal_gripper, pick_and_place_by_name, locate_by_name, list_available_objects],
         system_message="""
 You are the Coder agent in a multi-agent robot system for the TIAGo robot.
 
