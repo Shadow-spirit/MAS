@@ -89,12 +89,25 @@ def list_entities() -> str:
         names = [r["name"] for r in result]
     return "Known entities:\n" + "\n".join(f"- {n}" for n in names)
 
+def get_next_task_id():
+    with _neo4j().session() as s:
+        result = s.run(
+            """
+            MATCH ()-[r]->()
+            WHERE r.task_id IS NOT NULL
+            RETURN coalesce(max(r.task_id), 0) + 1 AS next_id
+            """
+        )
+        return {"task_id": result.single()["next_id"]}
 
-def store_triples(triples: List[Dict[str, str]]) -> str:
+
+def store_triples(triples: List[Dict[str, str]], task_id: int, step: Optional[int] = None) -> str:
     """
     将若干 (subject, relation, object) 三元组存入 Neo4j。
-    - subject/object 会被转换为小写
-    - relation 会被转为大写并将空格等非法字符替换为下划线
+    - subject/object 转为小写
+    - relation 转为大写并替换非法字符
+    - 必须传入 task_id（由 agent 决定）
+    - step 可选：有则作为事件(event)，无则作为事实(fact)
     """
     def _sanitize_rel(r: str) -> str:
         return (
@@ -110,16 +123,25 @@ def store_triples(triples: List[Dict[str, str]]) -> str:
             s_name = t["subject"].lower()
             o_name = t["object"].lower()
             rel = _sanitize_rel(t["relation"])
-            s.run(
-                f"""
+
+            query = f"""
                 MERGE (a:Entity {{name: $s}})
                 MERGE (b:Entity {{name: $o}})
-                MERGE (a)-[:{rel}]->(b)
-                """,
-                {"s": s_name, "o": o_name},
-            )
-    return f"Stored {len(triples)} triples."
+                MERGE (a)-[r:{rel}]->(b)
+                SET r.task_id = $task_id
+            """
+            params = {"s": s_name, "o": o_name, "task_id": task_id}
 
+            if step is not None:
+                query += ", r.step = $step"
+                params["step"] = step
+
+            s.run(query, params)
+
+    if step is not None:
+        return f"Stored {len(triples)} event triples for task_id={task_id}, step={step}."
+    else:
+        return f"Stored {len(triples)} fact triples for task_id={task_id}."
 
 def query_graph(cypher: str) -> str:
     """
