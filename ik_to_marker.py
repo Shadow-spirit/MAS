@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
 # -*- coding: utf-8 -*-
 """
 IK to ArUco marker (TIAGo) + optional Gripper-Cam secondary XY refinement

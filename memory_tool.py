@@ -5,7 +5,8 @@ import uuid
 import base64
 import shutil
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional,Any
+
 
 # —— 配置 —— #
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -98,50 +99,43 @@ def get_next_task_id():
             RETURN coalesce(max(r.task_id), 0) + 1 AS next_id
             """
         )
-        return {"task_id": result.single()["next_id"]}
+        return result.single()["next_id"]
 
 
-def store_triples(triples: List[Dict[str, str]], task_id: int, step: Optional[int] = None) -> str:
-    """
-    将若干 (subject, relation, object) 三元组存入 Neo4j。
-    - subject/object 转为小写
-    - relation 转为大写并替换非法字符
-    - 必须传入 task_id（由 agent 决定）
-    - step 可选：有则作为事件(event)，无则作为事实(fact)
-    """
-    def _sanitize_rel(r: str) -> str:
-        return (
-            r.strip()
-             .upper()
-             .replace(" ", "_")
-             .replace("-", "_")
-             .replace("/", "_")
-        )
+def store_triples(triples: List[Dict[str, Any]], task_id: int) -> str:
+    if not triples or not isinstance(triples, list):
+        return "Error: 'triples' must be a non-empty list."
+    if task_id is None:
+        return "Error: 'task_id' is required."
 
-    with _neo4j().session() as s:
+    uri = NEO4J_URI
+    driver = GraphDatabase.driver(uri, auth=(NEO4J_USER, NEO4J_PASSWORD))
+
+    with driver.session() as session:
         for t in triples:
-            s_name = t["subject"].lower()
-            o_name = t["object"].lower()
-            rel = _sanitize_rel(t["relation"])
+            s = t.get("subject")
+            r = t.get("relation")
+            o = t.get("object")
+            step = t.get("step", None)
+            if not all([s, r, o]):
+                continue
+            if isinstance(step, str) and step.lower() == "fact":
+                step_value = "fact"
+            else:
+                try:
+                    step_value = "fact"
 
-            query = f"""
-                MERGE (a:Entity {{name: $s}})
-                MERGE (b:Entity {{name: $o}})
-                MERGE (a)-[r:{rel}]->(b)
-                SET r.task_id = $task_id
-            """
-            params = {"s": s_name, "o": o_name, "task_id": task_id}
+            session.run("""
+                MERGE (s:Entity {name:$s})
+                MERGE (o:Entity {name:$o})
+                MERGE (s)-[rel:RELATION {type:$r}]->(o)
+                SET rel.task_id=$task_id,
+                    rel.step=$step_value
+            """, s=s, o=o, r=r, task_id=task_id, step_value=step_value)
 
-            if step is not None:
-                query += ", r.step = $step"
-                params["step"] = step
+    driver.close()
+    return f"✅ Stored {len(triples)} triples for task_id={task_id}."
 
-            s.run(query, params)
-
-    if step is not None:
-        return f"Stored {len(triples)} event triples for task_id={task_id}, step={step}."
-    else:
-        return f"Stored {len(triples)} fact triples for task_id={task_id}."
 
 def query_graph(cypher: str) -> str:
     """

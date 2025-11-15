@@ -1,3 +1,8 @@
+My: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
+
+LAB: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
+
+
 ---------- ThoughtEvent (coder) ----------
 Chosen action: mix blue paint and yellow paint
 
@@ -62,4 +67,63 @@ What would you like me to do? I hand back to the Coder.
 
 ---------- ThoughtEvent (coder) ----------
 I choose to go to the art studio because Memory shows wood cup(s) containing blue and yellow paint and prior mixing/pouring occurred there (and "go to art studio" is recorded). To access the wood cup and paints and continue mixing to create green paint, the next reasonable step is to move to the art studio.
+
+
+
+I will store 5 facts (no step) and 6 events (one call per step) for task_id=1. Now storing the facts first.
+{"triples":[{"subject":"art studio","relation":"contains","object":"jug (containing nothing)"},{"subject":"art studio","relation":"contains","object":"wood cup (containing blue paint)"},{"subject":"art studio","relation":"contains","object":"wood cup (containing yellow paint)"},{"subject":"art studio","relation":"contains","object":"wood cup (containing red paint)"},{"subject":"jug","relation":"contains","object":"green paint"}],"task_id":1}
+{"triples":[{"subject":"agent","relation":"performed","object":"go art studio"},{"subject":"agent","relation":"observed","object":"You move to the art studio."},{"subject":"go art studio","relation":"reward","object":"30"}],"task_id":1,"step":1}
+{"triples":[{"subject":"agent","relation":"performed","object":"look around"},{"subject":"agent","relation":"observed","object":"This room is called the art studio. In it, you see: \n\tthe agent\n\ta substance called air\n\ta large cupboard. The large cupboard door is closed. \n\ta paint cupboard. The paint cupboard door is closed. \n\ta table. On the table is: a jug (containing nothing).\n\ta wood cup (containing blue paint)\n\ta wood cup (containing yellow paint)\n\ta wood cup (containing red paint)\nYou also see:\n\tA door to the hallway (that is open)"},{"subject":"look around","relation":"reward","object":"0"}],"task_id":1,"step":2}
+{"triples":[{"subject":"agent","relation":"performed","object":"pour wood cup containing blue paint in jug"},{"subject":"agent","relation":"observed","object":"You pour the contents of the wood cup into the jug."},{"subject":"pour wood cup containing blue paint in jug","relation":"reward","object":"0"}],"task_id":1,"step":3}
+{"triples":[{"subject":"agent","relation":"performed","object":"pour wood cup containing yellow paint in jug"},{"subject":"agent","relation":"observed","object":"You pour the contents of the wood cup into the jug."},{"subject":"pour wood cup containing yellow paint in jug","relation":"reward","object":"10"}],"task_id":1,"step":4}
+{"triples":[{"subject":"agent","relation":"performed","object":"mix jug containing blue paint and yellow paint"},{"subject":"agent","relation":"observed","object":"Blue and yellow paint mix to produce green paint."},{"subject":"mix jug containing blue paint and yellow paint","relation":"reward","object":"10"}],"task_id":1,"step":5}
+{"triples":[{"subject":"agent","relation":"performed","object":"focus on green paint"},{"subject":"agent","relation":"observed","object":"You focus on the green paint."},{"subject":"focus on green paint","relation":"reward","object":"50"}],"task_id":1,"step":6}
+Stored 6 events and 5 facts for task_id=1.
+
+
+
+
+
+------------------------
+- Fact: "Blue and yellow paint mix to produce green paint."
+- The art studio contains wood cups with blue paint and yellow paint (and red paint) and a jug on the table.
+- The hallway has a door to the art studio (open) and a door to the kitchen (open).
+
+
+
+-----------------------
+ memory Said: I found these relevant memories:
+
+- Fact/recipe: "Blue and yellow paint mix to produce green paint."
+- Room contents:
+  - Art studio contains: a wood cup containing blue paint; a wood cup containing yellow paint; a wood cup containing red paint; a jug on the table. The art studio has a door to the hallway (open).
+  - Hallway contains: a door to the art studio (open) and a door to the kitchen (open).
+- Past navigation/actions (exact recorded strings):
+  - "go to art studio"
+  - "You move to the art studio"
+
+Conclusion: memory indicates the route is kitchen -> hallway -> art studio. Past successful navigation used the exact string "go to art studio". From the kitchen you should first go to the hallway then to the art studio (or try the recorded command "go to art studio").
+
+
+---------------
+Past episodes contain these specific entries:
+- "You arrive at countertop 1. On the countertop 1, you see a soapbar 1, and a soapbottle 1."
+- "You pick up the soapbar 1 from the countertop 1."
+- "You clean the soapbar 1 using the sinkbasin 1."
+- "You move the soapbar 1 to the cabinet 1."
+- "You open the cabinet 1. The cabinet 1 is open. In it, you see nothing." (note: this may be from a different episode/state)
+
+---------------------------------
+I’ve summarized and stored key facts from your conversation as memory triples:
+- Emily — HAS_NAME — emily
+- Emily — LIKES — painting
+- Emily — LIKES — playing_piano
+- Emily — LIKES — tea_tasting
+- Emily — PREFERS — artistic_works
+- Emily — LIKES — the_great_gatsby
+- Assistant — RECOMMENDED — the_little_prince
+- Assistant — RECOMMENDED — pride_and_prejudice
+- Emily — VISITED — green_meadow_park
+- Emily — SAW — cherry_blossom
+- Emily — SAW — squirrel
 
